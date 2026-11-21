@@ -1,5 +1,5 @@
 /* 내 옷사이즈 — offline shell */
-const CACHE = 'size-fit-v1';
+const CACHE = 'size-fit-v2';
 const ASSETS = [
   './',
   './index.html',
@@ -56,14 +56,17 @@ self.addEventListener('fetch', event => {
 
   event.respondWith(
     caches.match(request).then(hit => {
-      if (hit) return hit;
-      return fetch(request).then(response => {
-        if (response && response.status === 200 && response.type === 'basic') {
-          const copy = response.clone();
-          caches.open(CACHE).then(cache => cache.put(request, copy)).catch(() => {});
-        }
-        return response;
-      });
+      const network = fetch(request)
+        .then(response => {
+          if (response && response.status === 200 && response.type === 'basic') {
+            const copy = response.clone();
+            caches.open(CACHE).then(cache => cache.put(request, copy)).catch(() => {});
+          }
+          return response;
+        })
+        .catch(() => hit);
+      // 저장된 파일을 먼저 보여 주고, 다음 실행 때 최신 파일로 바꿔 둔다
+      return hit || network;
     })
   );
 });

@@ -327,14 +327,24 @@ const MEASURE_WORD = {
   rise: '밑위', outseam: '아웃심', inseam: '인심', hem: '밑단',
 };
 
+/** 받침에 따라 조사 '이/가'를 고른다. */
+function subjectParticle(word) {
+  const w = String(word || '');
+  const last = w.charAt(w.length - 1);
+  const code = last.charCodeAt(0);
+  if (code < 0xac00 || code > 0xd7a3) return '이';
+  return (code - 0xac00) % 28 === 0 ? '가' : '이';
+}
+
 function phraseOf(detail) {
   const w = MEASURE_WORD[detail.key] || detail.label;
+  const josa = subjectParticle(w);
   const d = Math.abs(detail.diff);
   if (detail.diff < 0) {
-    if (detail.kind === 'length') return w + '이 ' + fmt(d) + 'cm 짧아요.';
-    return w + '이 ' + fmt(d) + 'cm 좁아 여유가 없어요.';
+    if (detail.kind === 'length') return w + josa + ' ' + fmt(d) + 'cm 짧아요.';
+    return w + josa + ' ' + fmt(d) + 'cm 좁아 여유가 없어요.';
   }
-  if (detail.kind === 'length') return w + '이 ' + fmt(d) + 'cm 길어 수선이 필요할 수 있어요.';
+  if (detail.kind === 'length') return w + josa + ' ' + fmt(d) + 'cm 길어 수선이 필요할 수 있어요.';
   return w + '에 ' + fmt(d) + 'cm 여유가 있어요.';
 }
 
@@ -877,18 +887,14 @@ function renderTable() {
 }
 
 function compareCue(best, alt) {
-  const keys = ['length', 'outseam', 'chest', 'waist', 'shoulder'];
-  for (let i = 0; i < keys.length; i++) {
-    const k = keys[i];
-    const a = alt.values[k];
-    const b = best.values[k];
-    if (!isNum(a) || !isNum(b)) continue;
-    const d = round1(a - b);
-    if (Math.abs(d) < 0.5) continue;
-    const word = MEASURE_WORD[k] || MEASURES[k].label;
-    return word + ' ' + fmt(Math.abs(d)) + 'cm ' + (d < 0 ? '작아 조금 더 타이트' : '커서 조금 더 여유');
-  }
-  return '';
+  const worst = alt.details
+    .filter(d => !d.skip && Math.abs(d.diff) > 0.2)
+    .sort((a, b) => a.score - b.score)[0];
+  if (!worst) return '';
+  const word = MEASURE_WORD[worst.key] || worst.label;
+  const d = fmt(Math.abs(worst.diff));
+  return word + subjectParticle(word) + ' ' + d + 'cm ' +
+    (worst.diff < 0 ? '작아 조금 더 타이트' : '커서 조금 더 여유');
 }
 
 /* ---------- 추천 결과 ---------- */
