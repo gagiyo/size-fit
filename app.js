@@ -13,7 +13,7 @@ const LS = {
   category: 'sizefit.category.v1',
 };
 
-/* ---------- 나의 기준 (최요섭 님) ---------- */
+/* ---------- 나의 기준 ---------- */
 const DEFAULT_PROFILE = {
   height: 186,
   weight: 73,
