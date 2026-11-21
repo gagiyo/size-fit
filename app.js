@@ -257,7 +257,7 @@ function buildTargets(category, profile) {
     sleeve: [v('sleeve') - 1.5, v('sleeve') + 1.5],
     sleeveCb: [v('sleeveCb') - 1.5, v('sleeveCb') + 1.5],
     neck: [v('neck') - 0.5, v('neck') + 0.5],
-    waist: [waistFlatOf(profile) - 1, waistFlatOf(profile) + 1.5],
+    waist: [waistFlatOf(profile) - 0.3, waistFlatOf(profile) + 1.7],
     hip: [v('hip') - 2.5, v('hip') + 2.5],
     thigh: [v('thigh') - 1.5, v('thigh') + 1.5],
     rise: [v('rise') - 2, v('rise') + 2],
