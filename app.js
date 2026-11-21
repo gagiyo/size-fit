@@ -528,6 +528,26 @@ function looksLikeSize(text) {
 }
 
 /**
+ * OCR은 열 이름 사이 간격을 한 칸으로 붙여 읽을 때가 있다.
+ * ('가슴단면 총장') 한 칸에 이름이 둘 이상 들어 있으면 다시 나눈다.
+ */
+function expandHeaderCells(cells, category) {
+  const generic = /^(길이|너비|단면|둘레|폭|기장|장)$/;
+  const out = [];
+  cells.forEach(cell => {
+    const parts = String(cell).split(/\s+/).filter(Boolean);
+    if (parts.length >= 2 &&
+        parts.filter(p => matchLabel(p, category)).length >= 2 &&
+        !parts.some(p => generic.test(p))) {
+      parts.forEach(p => out.push(p));
+    } else {
+      out.push(cell);
+    }
+  });
+  return out;
+}
+
+/**
  * 붙여넣은 표를 사이즈 행 배열로 변환한다.
  * @returns {{rows: Array, orientation: string, converted: Array<string>, ignored: number}}
  */
@@ -557,6 +577,14 @@ function parseChart(text, category) {
     }
   }
 
+  if (headerIdx !== -1) {
+    const expanded = expandHeaderCells(lines[headerIdx], category);
+    if (expanded.length !== lines[headerIdx].length) {
+      lines[headerIdx] = expanded;
+      header = expanded.map(c => matchLabel(c, category));
+    }
+  }
+
   if (headerIdx !== -1 && header) {
     const cols = header.map((key, idx) => {
       if (!key) return null;
@@ -568,12 +596,12 @@ function parseChart(text, category) {
       const cells = lines[i];
       if (!cells.length) continue;
       const values = {};
-      let hasNumber = false;
+      let numCells = 0;
       cols.forEach(c => {
         if (c.key === 'size') return;
         const num = parseNum(cells[c.idx]);
-        if (num === null) return;
-        hasNumber = true;
+        if (num === null || num <= 0 || num > 300) return;
+        numCells += 1;
         let val = num;
         if (c.circ && ['chest', 'waist', 'hip', 'thigh', 'hem'].indexOf(c.key) !== -1) {
           val = round1(num / 2);
@@ -587,7 +615,7 @@ function parseChart(text, category) {
         }
         values[c.key] = val;
       });
-      if (!hasNumber) continue;
+      if (numCells < 2) continue;
       let size = '';
       if (sizeCol) size = cells[sizeCol.idx] || '';
       if (!size) {
