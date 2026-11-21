@@ -385,6 +385,7 @@ function evalRow(row, category, targets, opts) {
   (cfg.critical || []).forEach(k => {
     if (!isNum(row.values[k]) && !(shortSleeve && (k === 'sleeve' || k === 'sleeveCb'))) {
       if (k === 'outseam' && isNum(row.values.inseam)) return;
+      if (k === 'sleeve' && isNum(row.values.sleeveCb)) return;
       missing.push(k);
     }
   });

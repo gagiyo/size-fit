@@ -746,6 +746,14 @@ input[type="range"]::-moz-range-thumb {
 .toast.is-on { opacity: 1; transform: translate(-50%, 0); }
 
 /* ── responsive ─────────────────────────────────────────── */
+@media (max-width: 560px) {
+  /* iOS Safari zooms the page when a field under 16px gets focus */
+  input, textarea, select { font-size: 16px; }
+  .cell-input { font-size: 16px; width: 62px; }
+  .cell-input--size { width: 80px; }
+  .input { font-weight: 600; }
+}
+
 @media (min-width: 560px) {
   main { padding: 22px 22px calc(var(--tabbar-h) + 40px); }
   .page-head h1 { font-size: 30px; }
