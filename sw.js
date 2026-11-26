@@ -1,5 +1,5 @@
 /* 내 옷사이즈 — offline shell */
-const CACHE = 'size-fit-v3';
+const CACHE = 'size-fit-v4';
 const ASSETS = [
   './',
   './index.html',
