@@ -252,7 +252,7 @@ function writeJSON(key, value) {
   }
 }
 
-/* ---------- 사이즈표 보관함(여러 벌) · 백업 ---------- */
+/* ---------- 사이즈표 보관함(여러 벌) ---------- */
 /*
   옛 앱은 'sizefit.rows.v1' 하나에 종류별 표를 담아 두었고, 새 표를 넣으면 덮였다.
   그래서 v2는 '한 벌 = 한 표' 목록으로 보관하고 지금 쓰는 표를 종류별로 기억한다.
@@ -369,137 +369,6 @@ function legacyRowsFromStore(store) {
     out[cat] = active[cat] ? active[cat].rows.map(r => ({ id: r.id, size: r.size, values: clone(r.values) })) : [];
   });
   return out;
-}
-
-/** 백업 파일 한 벌. 앱 이름·저장 구조 버전·내보낸 날짜를 함께 넣는다. */
-function buildBackup(store, profile, now) {
-  const t = now || new Date();
-  return {
-    app: APP_ID,
-    appName: '내 옷사이즈',
-    schemaVersion: SCHEMA_VERSION,
-    exportedAt: t.toISOString(),
-    profile: clone(profile),
-    activeByCategory: clone(store.activeByCategory || {}),
-    charts: (store.charts || []).map(ch => ({
-      id: ch.id,
-      name: ch.name,
-      category: ch.category,
-      memo: ch.memo || '',
-      createdAt: ch.createdAt,
-      updatedAt: ch.updatedAt,
-      rows: (ch.rows || []).map(r => ({ id: r.id, size: r.size, memo: r.memo || '', values: clone(r.values) })),
-    })),
-  };
-}
-
-/** 백업 파일을 읽어 무엇이 들어 있는지 확인한다. 다른 앱 파일이면 던진다. */
-function readBackup(raw) {
-  if (!raw || typeof raw !== 'object') throw new Error('JSON 파일을 읽을 수 없어요.');
-  if (raw.app && raw.app !== APP_ID) throw new Error('size-fit 백업 파일이 아니에요(앱: ' + String(raw.app) + ').');
-  if (!Array.isArray(raw.charts)) throw new Error('사이즈표 목록이 없는 파일이에요.');
-  const warnings = [];
-  const charts = [];
-  const seen = {};
-  raw.charts.forEach((ch, i) => {
-    const clean = sanitizeChart(ch);
-    if (!clean) { warnings.push((i + 1) + '번째 표는 옷 종류를 알 수 없어 건너뛰었어요.'); return; }
-    if (typeof ch.id === 'string' && ch.id) clean.id = ch.id;
-    if (seen[clean.id]) clean.id = uid();
-    seen[clean.id] = 1;
-    charts.push(clean);
-  });
-  const version = isNum(raw.schemaVersion) ? raw.schemaVersion : (isNum(raw.version) ? raw.version : 1);
-  if (version > SCHEMA_VERSION) {
-    warnings.push('더 새 버전(v' + version + ')에서 만든 파일이라, 읽을 수 있는 항목만 복원합니다.');
-  }
-  const requested = (raw.activeByCategory && typeof raw.activeByCategory === 'object') ? raw.activeByCategory : {};
-  return {
-    app: raw.app || APP_ID,
-    version: version,
-    exportedAt: typeof raw.exportedAt === 'string' ? raw.exportedAt : '',
-    profile: (raw.profile && typeof raw.profile === 'object') ? raw.profile : null,
-    activeByCategory: requested,
-    charts: charts,
-    warnings: warnings,
-  };
-}
-
-/**
- * 복원. mode 'merge'(기본)는 지금 표를 그대로 두고 백업의 표를 더하고,
- * 'replace'는 지금 표를 모두 지우고 백업으로 바꾼다(확인은 화면에서 한 번 더).
- */
-function mergeChartStores(current, incoming, mode) {
-  const t = Date.now();
-  const store = (mode === 'replace') ? emptyChartStore() : (normalizeChartStore(clone(current)) || emptyChartStore());
-  const base = store.charts;
-  let added = 0;
-  let updated = 0;
-  let skipped = 0;
-  const warnings = [];
-
-  (incoming.charts || []).forEach(src => {
-    const same = base.find(c => c.id === src.id);
-    if (same) {
-      if ((src.updatedAt || 0) > (same.updatedAt || 0)) {
-        same.name = src.name;
-        same.rows = (src.rows || []).map(sanitizeRow);
-        same.memo = src.memo || '';
-        same.updatedAt = src.updatedAt || t;
-        updated += 1;
-      } else {
-        skipped += 1;
-      }
-      return;
-    }
-    let name = src.name || DEFAULT_CHART_NAME;
-    if (base.some(c => c.category === src.category && c.name === name)) {
-      let n = 2;
-      while (base.some(c => c.category === src.category && c.name === name + ' (' + n + ')')) n += 1;
-      name = name + ' (' + n + ')';
-      warnings.push('같은 이름의 표가 있어 “' + name + '”로 넣었어요.');
-    }
-    base.push({
-      id: base.some(c => c.id === src.id) ? uid() : src.id,
-      name: name,
-      category: src.category,
-      rows: (src.rows || []).map(sanitizeRow),
-      memo: src.memo || '',
-      createdAt: src.createdAt || t,
-      updatedAt: src.updatedAt || t,
-    });
-    added += 1;
-  });
-
-  const wanted = (incoming.activeByCategory && typeof incoming.activeByCategory === 'object') ? incoming.activeByCategory : {};
-  const replaceMode = mode === 'replace';
-  Object.keys(CATEGORIES).forEach(cat => {
-    const preferred = base.find(c => c.id === wanted[cat] && c.category === cat);
-    const currentPick = base.find(c => c.id === store.activeByCategory[cat] && c.category === cat);
-    const first = base.find(c => c.category === cat);
-    // 합치기에서는 사용자가 보고 있던 표를 그대로 두고, 덮어쓰기에서만 백업의 표를 고른다
-    const order = replaceMode ? [preferred, currentPick, first] : [currentPick, preferred, first];
-    store.activeByCategory[cat] = (order.find(Boolean) || {}).id || null;
-  });
-
-  return { store: store, added: added, updated: updated, skipped: skipped, warnings: warnings };
-}
-
-/** 내 치수도 백업에서 되살린다(replace에서만 쓴다). */
-function profileFromBackup(rawProfile, fallback) {
-  const base = clone(fallback || DEFAULT_PROFILE);
-  if (!rawProfile || typeof rawProfile !== 'object') return base;
-  ['height', 'weight', 'waistInch'].forEach(k => {
-    if (isNum(rawProfile[k]) && rawProfile[k] > 0) base[k] = rawProfile[k];
-  });
-  if (typeof rawProfile.topSize === 'string' && rawProfile.topSize.trim()) base.topSize = rawProfile.topSize.trim();
-  if (rawProfile.measure && typeof rawProfile.measure === 'object') {
-    Object.keys(base.measure).forEach(k => {
-      if (isNum(rawProfile.measure[k]) && rawProfile.measure[k] > 0) base.measure[k] = rawProfile.measure[k];
-      else if (rawProfile.measure[k] === null) base.measure[k] = null;
-    });
-  }
-  return base;
 }
 
 /* ---------- 프로필 ---------- */
@@ -1094,7 +963,7 @@ function persistChartStore() {
   writeJSON(LS.rows, legacyRowsFromStore(state.chartStore));
   if (!ok && !chartSaveWarned) {
     chartSaveWarned = true;
-    toast('저장 공간이 부족해 보관함을 저장하지 못했어요. 백업을 내려받아 두세요.');
+    toast('저장 공간이 부족해 보관함을 저장하지 못했어요. 쓰지 않는 표를 지워 주세요.');
   }
 }
 
@@ -1983,170 +1852,6 @@ function applyPaste() {
   if (card && card.scrollIntoView) card.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
-/* ---------- 백업 · 복원 ---------- */
-function downloadFile(filename, text, mime) {
-  try {
-    const blob = new Blob([text], { type: mime || 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    a.rel = 'noopener';
-    a.style.display = 'none';
-    document.body.appendChild(a);
-    a.click();
-    setTimeout(() => {
-      if (a.parentNode) a.parentNode.removeChild(a);
-      URL.revokeObjectURL(url);
-    }, 5000);
-  } catch (e) {
-    toast('파일을 만들지 못했어요. 브라우저 저장 공간을 확인해 주세요.');
-  }
-}
-
-function pad2(n) { return n < 10 ? '0' + n : String(n); }
-
-function exportChartBackup() {
-  saveRows();  // 화면에 남은 마지막 입력까지 저장한 뒤 내보낸다
-  const payload = buildBackup(state.chartStore, state.profile);
-  if (!payload.charts.length) {
-    toast('아직 보관한 표가 없어요. 표를 먼저 만들어 주세요.');
-    return;
-  }
-  const d = new Date();
-  const ymd = d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate());
-  downloadFile('size-fit-백업-' + ymd + '.json', JSON.stringify(payload, null, 2));
-  const status = $('#backupStatus');
-  if (status) status.textContent = '마지막 백업: ' + d.toLocaleString('ko-KR') + ' · 표 ' + payload.charts.length + '벌';
-  toast('표 ' + payload.charts.length + '벌과 내 치수를 백업 파일로 내려받았어요.');
-}
-
-let modalActions = [];
-let modalResolve = null;
-
-function btnKindClass(kind) {
-  if (kind === 'primary') return 'btn--primary';
-  if (kind === 'danger') return 'btn--danger';
-  return 'btn--ghost';
-}
-
-function openModal(opts) {
-  const o = opts || {};
-  const el = $('#backupModal');
-  if (!el) return Promise.resolve(null);
-  const title = $('#backupModalTitle');
-  const body = $('#backupModalBody');
-  const actions = $('#backupModalActions');
-  if (title) title.textContent = o.title || '확인';
-  if (body) body.innerHTML = o.html || '';
-  modalActions = o.actions || [{ label: '확인', value: true, kind: 'primary' }];
-  if (actions) {
-    actions.innerHTML = modalActions.map((a, i) =>
-      '<button type="button" class="btn ' + btnKindClass(a.kind) + '" data-modal-i="' + i + '">' +
-      escapeHtml(a.label) + '</button>'
-    ).join('');
-  }
-  el.hidden = false;
-  return new Promise(resolve => { modalResolve = resolve; });
-}
-
-function closeModal(value) {
-  const el = $('#backupModal');
-  if (el) el.hidden = true;
-  const r = modalResolve;
-  modalResolve = null;
-  if (r) r(value);
-}
-
-function onBackupModalClick(e) {
-  const t = e.target;
-  if (t.closest && t.closest('[data-modal-close]')) { closeModal(null); return; }
-  const btn = t.closest ? t.closest('[data-modal-i]') : null;
-  if (!btn) return;
-  const i = Number(btn.getAttribute('data-modal-i'));
-  const action = modalActions[i];
-  closeModal(action ? (action.value === undefined ? null : action.value) : null);
-}
-
-function importChartBackupFile(file) {
-  if (!file) return;
-  const reader = new FileReader();
-  reader.onload = () => {
-    let payload;
-    try {
-      payload = readBackup(JSON.parse(String(reader.result || '')));
-    } catch (e) {
-      toast((e && e.message) || '백업 파일을 읽지 못했어요.');
-      return;
-    }
-    if (!payload.charts.length) {
-      toast('복원할 표가 없어요.');
-      return;
-    }
-    const when = payload.exportedAt ? new Date(payload.exportedAt) : null;
-    const whenText = (when && !isNaN(when.getTime())) ? when.toLocaleString('ko-KR') : '날짜 없음';
-    const chartList = payload.charts.slice(0, 6).map(c =>
-      '<li>' + escapeHtml(CATEGORIES[c.category].name) + ' · ' + escapeHtml(c.name) + ' (' + c.rows.length + '줄)</li>'
-    ).join('');
-    const more = payload.charts.length > 6 ? '<li>… 그 밖에 ' + (payload.charts.length - 6) + '벌</li>' : '';
-    openModal({
-      title: '백업 불러오기',
-      html: '<p class="modal__meta">앱 <b>size-fit</b> · 저장 구조 v' + escapeHtml(String(payload.version)) +
-        '<br>내보낸 날짜 <b>' + escapeHtml(whenText) + '</b>' +
-        '<br>표 <b>' + payload.charts.length + '벌</b></p>' +
-        '<ul class="modal__list">' + chartList + more + '</ul>' +
-        (payload.warnings.length ? '<p class="modal__warn">' + payload.warnings.map(escapeHtml).join('<br>') + '</p>' : '') +
-        '<p class="hint">합치기는 지금 표를 그대로 두고 백업의 표를 더해요. 덮어쓰기는 지금 표를 모두 지우고 백업으로 바꿔요.</p>',
-      actions: [
-        { label: '합치기', value: 'merge', kind: 'primary' },
-        { label: '덮어쓰기', value: 'replace', kind: 'ghost' },
-        { label: '취소', value: null, kind: 'ghost' }
-      ]
-    }).then(mode => {
-      if (!mode) return;
-      if (mode === 'merge') { applyChartRestore(payload, 'merge'); return; }
-      openModal({
-        title: '정말 덮어쓸까요?',
-        html: '<p class="modal__warn">지금 보관한 표 <b>' + state.chartStore.charts.length + '벌</b>과 내 치수가 백업 내용으로 바뀝니다. 되돌릴 수 없어요.</p>' +
-          '<p class="hint">지금 표를 남기려면 취소를 누르고 <b>합치기</b>를 골라 주세요.</p>',
-        actions: [
-          { label: '덮어쓰기', value: 'replace', kind: 'danger' },
-          { label: '취소', value: null, kind: 'ghost' }
-        ]
-      }).then(ok => {
-        if (ok === 'replace') applyChartRestore(payload, 'replace');
-      });
-    });
-  };
-  reader.onerror = () => toast('파일을 읽지 못했어요.');
-  reader.readAsText(file);
-}
-
-function applyChartRestore(payload, mode) {
-  const result = mergeChartStores(state.chartStore, payload, mode);
-  state.chartStore = result.store;
-  if (mode === 'replace' && payload.profile) {
-    state.profile = profileFromBackup(payload.profile, state.profile);
-    writeJSON(LS.profile, state.profile);
-  }
-  syncRowsFromCharts();
-  persistChartStore();
-  renderCharts();
-  renderTable();
-  renderResults();
-  renderBasis();
-  renderPresets();
-  renderProfileForm();
-  renderHeader();
-  renderGuide();
-  const bits = [];
-  if (result.added) bits.push(result.added + '벌 추가');
-  if (result.updated) bits.push(result.updated + '벌 갱신');
-  if (result.skipped) bits.push(result.skipped + '벌 그대로');
-  toast('복원했어요' + (bits.length ? ' · ' + bits.join(', ') : ''));
-  if (result.warnings.length) toast(result.warnings[0]);
-}
-
 /* ---------- 피팅 ---------- */
 function readImageFile(file) {
   return new Promise((resolve, reject) => {
@@ -2447,22 +2152,6 @@ function bindEvents() {
   if (chartDel) chartDel.addEventListener('click', deleteChart);
   const chartMemoInput = $('#chartMemo');
   if (chartMemoInput) chartMemoInput.addEventListener('input', () => commitChartMemo(chartMemoInput.value));
-
-  // 백업 · 복원
-  const backupExport = $('#backupExportBtn');
-  if (backupExport) backupExport.addEventListener('click', exportChartBackup);
-  const backupImportBtn = $('#backupImportBtn');
-  if (backupImportBtn) backupImportBtn.addEventListener('click', () => {
-    const input = $('#backupImportInput');
-    if (input) { input.value = ''; input.click(); }
-  });
-  const backupInput = $('#backupImportInput');
-  if (backupInput) backupInput.addEventListener('change', e => {
-    const f = e.target.files && e.target.files[0];
-    if (f) importChartBackupFile(f);
-  });
-  const backupModal = $('#backupModal');
-  if (backupModal) backupModal.addEventListener('click', onBackupModalClick);
 
   // 입력 방식
   $$('.seg__btn').forEach(btn => {
